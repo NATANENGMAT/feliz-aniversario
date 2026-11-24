@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Feliz aniversário — interativo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500&family=Playfair+Display:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<style>
+  :root { --ground: #e2dbc9; --ink: #2a1218; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: #e3d9c6; overflow: hidden; overscroll-behavior: none; }
+  body { user-select: none; -webkit-user-select: none; touch-action: none; }
+
+  /* The card keeps its 720x1280 shape and is scaled to the screen; the ground around it matches the
+     card, so a phone shows no dark bars. In "heart of light" mode the ground darkens with the card. */
+  #wrap { position: fixed; inset: 0; overflow: hidden; background: #e3d9c6; transition: background 1.2s ease; }
+  body.hm #wrap, body.hm html { background: #4c333b; }
+  #stage {
+    position: absolute; left: 50%; top: 50%; margin: -640px 0 0 -360px; width: 720px; height: 1280px; overflow: hidden;
+    background: linear-gradient(180deg, #e6dfcd 0%, #e2d6c4 55%, #e5d2c4 100%);
+    color: var(--ink); transform-origin: center center; cursor: pointer;
+  }
+
+  /* left strip of tall photos */
+  #strip { position: absolute; left: 22px; top: 0; width: 215px; will-change: transform; }
+  .tile { position: absolute; left: 0; width: 215px; overflow: hidden; background: #cbbfa8; cursor: zoom-in; }
+  .tile img, .photo img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+  .tile::after, .photo::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(160deg, rgba(255,196,170,.14), rgba(255,150,140,.05) 60%, rgba(90,30,50,.10));
+  }
+
+  /* four fixed photos: two stacked images each, so they can dissolve */
+  .photo { position: absolute; width: 215px; height: 215px; overflow: hidden; background: #cbbfa8; cursor: zoom-in;
+    transition: transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s; }
+  .photo:hover { transform: scale(1.035); box-shadow: 0 14px 40px rgba(90,30,50,.35); z-index: 5; }
+  .photo img { position: absolute; inset: 0; transition: opacity 1.4s ease-in-out, transform 8s linear; }
+  .photo img.b { opacity: 0; }
+  .photo .dev { position: absolute; inset: 0; background: #fff6ea; opacity: 1; transition: opacity 1.4s ease-out; pointer-events: none; z-index: 3; }
+
+  /* words */
+  #title { position: absolute; left: 240px; width: 480px; top: 352px; text-align: center; margin: 0;
+    font: 400 62px/1 "Playfair Display", Georgia, serif; letter-spacing: .02em; }
+  #title .ln { display: block; white-space: nowrap; }
+  .ch { display: inline-block; opacity: 0; }
+  #date { position: absolute; left: 240px; width: 480px; top: 498px; text-align: center; opacity: 0;
+    font: 400 19px "Playfair Display", Georgia, serif; letter-spacing: .3em; }
+  #poem { position: absolute; left: 270px; width: 320px; top: 588px; margin: 0;
+    font: 500 30px/1.38 "EB Garamond", Georgia, serif; }
+  #poem .w { display: inline-block; white-space: nowrap; }
+
+  .heart { position: absolute; width: 44px; height: 44px; overflow: visible; opacity: 0; }
+  .heart path { fill: none; stroke: var(--ink); stroke-width: 1.25; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+  #red { position: absolute; left: 430px; top: 925px; width: 60px; height: 56px; opacity: 0; overflow: visible; cursor: pointer; }
+
+  canvas#fx { position: absolute; left: 0; top: 0; width: 720px; height: 1280px; pointer-events: none; }
+  #vignette { position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 85% 70% at 50% 48%, rgba(255,220,190,0) 55%, rgba(120,40,60,.20) 100%),
+                radial-gradient(circle at 78% 18%, rgba(255,214,170,.26), rgba(255,214,170,0) 45%); }
+  #dim { position: absolute; inset: 0; background: #2b0f1d; opacity: 0; pointer-events: none; transition: opacity 1.2s ease; }
+  #finaltext { position: absolute; left: 0; width: 720px; top: 865px; text-align: center; opacity: 0; pointer-events: none;
+    font: italic 400 42px "Playfair Display", Georgia, serif; color: #ffe9d6; letter-spacing: .03em; transition: opacity 1s ease; }
+
+  /* while the heart of light is out, the words step aside */
+  #title, #poem, #date { transition: opacity .9s ease; }
+  .hm #title, .hm #poem, .hm #date { opacity: 0 !important; }
+  .hm .heart, .hm #red { opacity: 0 !important; }
+
+  #hint { position: absolute; left: 0; width: 720px; bottom: 26px; text-align: center; pointer-events: none; opacity: 0;
+    font: 400 20px "EB Garamond", Georgia, serif; color: #5a2c38; letter-spacing: .04em; transition: opacity .8s; }
+  #hint.on { opacity: .9; }
+  #hint.light { color: #ffe9d6; }
+
+  /* controls (outside the stage) */
+  .btn { position: fixed; z-index: 20; width: 46px; height: 46px; border-radius: 50%; border: 0; cursor: pointer;
+    background: rgba(255,246,234,.92); color: #8a2a44; font-size: 22px; display: grid; place-items: center;
+    box-shadow: 0 6px 20px rgba(0,0,0,.3); transition: transform .2s; }
+  .btn:hover { transform: scale(1.1); }
+  #replay { right: max(12px, env(safe-area-inset-right, 0px)); top: calc(12px + env(safe-area-inset-top, 0px)); }
+  #surprise { right: max(12px, env(safe-area-inset-right, 0px)); top: calc(68px + env(safe-area-inset-top, 0px)); }
+
+  /* photo viewer */
+  #lb { position: fixed; inset: 0; z-index: 30; display: none; background: rgba(24,8,14,.94); touch-action: none; }
+  #lb.open { display: grid; place-items: center; animation: lbin .35s ease; }
+  @keyframes lbin { from { opacity: 0 } to { opacity: 1 } }
+  #lbimg { max-width: 94vw; max-height: 84vh; border-radius: 6px; box-shadow: 0 20px 80px rgba(0,0,0,.6); transition: transform .25s, opacity .25s; }
+  #lbcount { position: absolute; top: 18px; left: 0; right: 0; text-align: center; color: #ffe9d6; font: 400 18px "EB Garamond", serif; letter-spacing: .2em; }
+  .lbbtn { position: absolute; background: none; border: 0; color: #ffe9d6; font-size: 40px; cursor: pointer; padding: 14px 18px; opacity: .85; }
+  #lbclose { top: 6px; right: 6px; } #lbprev { left: 4px; top: 50%; } #lbnext { right: 4px; top: 50%; }
+  #lblike { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); border: 0; border-radius: 30px; cursor: pointer;
+    padding: 12px 26px; background: #e0154f; color: #fff; font: 500 20px "EB Garamond", serif; box-shadow: 0 8px 24px rgba(224,21,79,.45); }
+  .floater { position: absolute; bottom: 70px; color: #ff5a7a; pointer-events: none; animation: floatup 2.2s ease-out forwards; }
+  @keyframes floatup { from { transform: translateY(0) scale(.6); opacity: 1 } to { transform: translateY(-420px) scale(1.4); opacity: 0 } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <div id="strip"></div>
+
+    <div class="photo" id="p0" style="left:252px;top:42px"  data-a="top1" data-b="col03"><img class="a" alt=""><img class="b" alt=""><div class="dev"></div></div>
+    <div class="photo" id="p1" style="left:484px;top:42px"  data-a="top2" data-b="col05"><img class="a" alt=""><img class="b" alt=""><div class="dev"></div></div>
+    <div class="photo" id="p2" style="left:252px;top:1040px" data-a="bot1" data-b="col07"><img class="a" alt=""><img class="b" alt=""><div class="dev"></div></div>
+    <div class="photo" id="p3" style="left:484px;top:1040px" data-a="bot2" data-b="col01"><img class="a" alt=""><img class="b" alt=""><div class="dev"></div></div>
+
+    <div id="vignette"></div>
+
+    <h1 id="title"><span class="ln" id="l1">HAPPY</span><span class="ln" id="l2">BIRTHDAY</span></h1>
+    <div id="date">· 24.11.26 ·</div>
+
+    <svg class="heart" id="hl" style="left:275px;top:318px" viewBox="0 0 24 24"><path pathLength="1" d="M12 21 C 5 15, 2 11, 2 7.5 C 2 4.5, 4.5 2.5, 7.2 2.5 C 9.2 2.5, 11 3.8, 12 5.5 C 13 3.8, 14.8 2.5, 16.8 2.5 C 19.5 2.5, 22 4.5, 22 7.5 C 22 11, 19 15, 12 21 Z"/></svg>
+    <svg class="heart" id="hr" style="left:606px;top:292px" viewBox="0 0 24 24"><path pathLength="1" d="M12 21 C 5 15, 2 11, 2 7.5 C 2 4.5, 4.5 2.5, 7.2 2.5 C 9.2 2.5, 11 3.8, 12 5.5 C 13 3.8, 14.8 2.5, 16.8 2.5 C 19.5 2.5, 22 4.5, 22 7.5 C 22 11, 19 15, 12 21 Z"/></svg>
+    <svg class="heart" id="hp" style="left:585px;top:668px" viewBox="0 0 24 24"><path pathLength="1" d="M12 21 C 5 15, 2 11, 2 7.5 C 2 4.5, 4.5 2.5, 7.2 2.5 C 9.2 2.5, 11 3.8, 12 5.5 C 13 3.8, 14.8 2.5, 16.8 2.5 C 19.5 2.5, 22 4.5, 22 7.5 C 22 11, 19 15, 12 21 Z"/></svg>
+
+    <p id="poem">“Entre todas as histórias do mundo, a minha favorita é a que estou vivendo ao seu lado… porque é em você que encontrei o meu lar.”</p>
+
+    <svg id="red" viewBox="0 0 24 24"><defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff7a93"/><stop offset="1" stop-color="#e0154f"/></linearGradient></defs>
+      <path fill="url(#rg)" d="M12 21 C 5 15, 2 11, 2 7.5 C 2 4.5, 4.5 2.5, 7.2 2.5 C 9.2 2.5, 11 3.8, 12 5.5 C 13 3.8, 14.8 2.5, 16.8 2.5 C 19.5 2.5, 22 4.5, 22 7.5 C 22 11, 19 15, 12 21 Z"/></svg>
+
+    <div id="dim"></div>
+    <canvas id="fx" width="1440" height="2560"></canvas>
+    <div id="finaltext">Feliz aniversário</div>
+    <div id="hint">toque para espalhar corações · segure para um coração de luz</div>
+  </div>
+</div>
+
+<button class="btn" id="replay" title="Recomeçar">↻</button>
+<button class="btn" id="surprise" title="Coração de luz">♥</button>
+
+<div id="lb">
+  <div id="lbcount"></div>
+  <button class="lbbtn" id="lbclose" aria-label="Fechar">×</button>
+  <button class="lbbtn" id="lbprev" aria-label="Anterior">‹</button>
+  <img id="lbimg" alt="">
+  <button class="lbbtn" id="lbnext" aria-label="Próxima">›</button>
+  <button id="lblike">♥ Eu amo essa</button>
+</div>
+
+<script>
+(() => {
+  const P = "photos/";
+  const $ = (s) => document.querySelector(s);
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const stage = $("#stage");
+
+  // ---------- fit the 720x1280 stage to any screen ----------
+  function fit() {
+    const s = Math.min(innerWidth / 720, innerHeight / 1280);
+    stage.style.transform = `scale(${s})`;
+    stage.dataset.scale = s;
+  }
+  addEventListener("resize", fit); fit();
+
+  // ---------- photos ----------
+  const COL = ["col01","col02","col03","col04","col05","col06","col07","col08"];
+  const HEIGHTS = [300,250,320,230,280,260,310,240];
+  const strip = $("#strip");
+  let y = 0;
+  for (let k = 0; k < 2; k++) COL.forEach((n, i) => {
+    const d = document.createElement("div");
+    d.className = "tile"; d.style.top = y + "px"; d.style.height = HEIGHTS[i] + "px";
+    d.innerHTML = `<img alt="" src="${P}${n}.jpg">`; d.dataset.src = n;
+    strip.appendChild(d); y += HEIGHTS[i] + 8;
+  });
+  const LOOP = HEIGHTS.reduce((a, h) => a + h + 8, 0);
+
+  const slots = [...document.querySelectorAll(".photo")];
+  slots.forEach((el) => { el.querySelector("img.a").src = P + el.dataset.a + ".jpg"; el.querySelector("img.b").src = P + el.dataset.b + ".jpg"; });
+
+  // ---------- text ----------
+  function chars(el, byWord) {
+    const text = el.textContent; el.textContent = ""; const out = [];
+    const words = byWord ? text.split(" ") : [text];
+    words.forEach((w, wi) => {
+      const host = byWord ? Object.assign(document.createElement("span"), { className: "w" }) : el;
+      for (const c of w) { const s = document.createElement("span"); s.className = "ch"; s.textContent = c; host.appendChild(s); out.push(s); }
+      if (byWord) { el.appendChild(host); if (wi < words.length - 1) el.appendChild(document.createTextNode(" ")); }
+    });
+    return out;
+  }
+  const titleCh = [...chars($("#l1")), ...chars($("#l2"))];
+  const poemCh = chars($("#poem"), true);
+  const hearts = [["#hl", 1.75], ["#hr", 1.9], ["#hp", 5.0]].map(([s, t0]) => ({ el: $(s), p: $(s + " path"), t0 }));
+  const red = $("#red"), dateEl = $("#date");
+
+  // ---------- the clock ----------
+  let t = 0, last = performance.now(), paused = false, scrollOff = 0, scrollVel = 0, dragging = false;
+  const q = new URLSearchParams(location.search); if (q.has("t")) t = parseFloat(q.get("t")) || 0;
+  let swapState = [0,0,0,0], lastGather = -1;
+
+  function intro(t) {
+    titleCh.forEach((c, i) => { const p = clamp((t - ((i + 1) / 5.5 - 0.12)) / 0.42); c.style.opacity = p; c.style.transform = `translateY(${(1 - p) * 13}px)`; });
+    dateEl.style.opacity = clamp((t - 2.75) / 0.9);
+    hearts.forEach((h) => {
+      const p = clamp((t - h.t0) / 0.9);
+      h.p.style.strokeDashoffset = 1 - p; h.el.style.opacity = clamp((t - h.t0) / 0.3);
+      const beat = t > h.t0 + 1.2 ? 1 + 0.1 * (0.5 - 0.5 * Math.cos((t - h.t0 - 1.2) * 2 * Math.PI)) : 0.6 + 0.4 * p;
+      h.el.style.transform = `scale(${beat})`;
+    });
+    poemCh.forEach((c, i) => { c.style.opacity = clamp((t - (5.0 + i / 27)) / 0.18); });
+    const rp = clamp((t - 12) / 0.35);
+    red.style.opacity = rp;
+    const pop = t < 12.7 ? rp * (1 + 0.25 * Math.sin(clamp((t - 12) / 0.7) * Math.PI)) : 1 + 0.12 * (0.5 - 0.5 * Math.cos((t - 12.7) * 2 * Math.PI / 0.8));
+    red.style.transform = `scale(${rp ? pop : 0})`;
+    if (Math.abs(t - last12) > 0 && t >= 12 && last12 < 12) { burst(472, 953, 10); ripple(472, 953); }
+    last12 = t;
+    // photos develop in, then swap to the second photo every ~8 s
+    slots.forEach((el, i) => {
+      el.querySelector(".dev").style.opacity = t > i * 0.18 + 0.05 ? 0 : 1;
+      const n = Math.floor((t - (7 + i * 1.4)) / 8) + 1;           // 0 before 7 s, then 1,2,3…
+      const bOn = t >= 7 + i * 1.4 && n % 2 === 1;
+      el.querySelector("img.b").style.opacity = bOn ? 1 : 0;
+      el.querySelector("img.a").style.transform = `scale(${1 + 0.06 * clamp(t / 24)})`;
+    });
+    // the light heart arrives by itself near the end of the first minute of watching
+    if (t > 20 && !heartMode && !autoShown) { autoShown = true; gatherHeart(); }
+  }
+  let last12 = 0, autoShown = false;
+
+  // ---------- particles ----------
+  const cv = $("#fx"), ctx = cv.getContext("2d"); ctx.scale(2, 2);   // draw in 720x1280 units
+  const sprite = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d");
+    const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, "rgba(255,246,226,1)"); r.addColorStop(.4, "rgba(255,214,170,.7)"); r.addColorStop(1, "rgba(255,180,150,0)");
+    g.fillStyle = r; g.fillRect(0, 0, 64, 64); return c; })();
+  const heartPath = new Path2D("M12 21 C 5 15, 2 11, 2 7.5 C 2 4.5, 4.5 2.5, 7.2 2.5 C 9.2 2.5, 11 3.8, 12 5.5 C 13 3.8, 14.8 2.5, 16.8 2.5 C 19.5 2.5, 22 4.5, 22 7.5 C 22 11, 19 15, 12 21 Z");
+
+  const flies = Array.from({ length: 46 }, () => ({
+    x: Math.random() * 720, y: Math.random() * 1280, s: 8 + Math.pow(Math.random(), 1.6) * 50,
+    a: 0.2 + Math.random() * 0.4, vx: 0, vy: -(6 + Math.random() * 14), ph: Math.random() * 6.28, sw: 12 + Math.random() * 30,
+  }));
+  const sparks = [], hearts_ = [], rings = [];
+  const mouse = { x: -999, y: -999, on: false };
+
+  function burst(x, y, n = 14) {
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.4, sp = 90 + Math.random() * 220;
+      hearts_.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, s: 0.7 + Math.random() * 1.1, r: (Math.random() - .5) * .8,
+        life: 0, max: 1.6 + Math.random() * 1.2, col: ["#ff7a93", "#ff5a7a", "#ffa3b4", "#e0154f"][i % 4] });
+    }
+  }
+  function ripple(x, y) { rings.push({ x, y, life: 0 }, { x, y, life: -0.25 }); }
+
+  // the heart of light
+  const N = 420, lp = Array.from({ length: N }, () => ({ x: 0, y: 0, tx: 0, ty: 0, vx: 0, vy: 0, a: 0, s: 6 + Math.random() * 7 }));
+  let heartMode = false, heartAlpha = 0;
+  const HC = { x: 360, y: 640 }, HS = 14.5;
+  function targets() {
+    lp.forEach((p, i) => {
+      const outline = i < 300, th = outline ? (i / 300) * Math.PI * 2 : Math.random() * Math.PI * 2;
+      const hx = 16 * Math.pow(Math.sin(th), 3), hy = -(13 * Math.cos(th) - 5 * Math.cos(2 * th) - 2 * Math.cos(3 * th) - Math.cos(4 * th));
+      const r = outline ? 1 : 0.18 + 0.7 * Math.sqrt(Math.random());
+      p.tx = HC.x + hx * HS * r + (outline ? (Math.random() - .5) * 4 : 0); p.ty = HC.y + hy * HS * r + (outline ? (Math.random() - .5) * 4 : 0);
+    });
+  }
+  function gatherHeart() {
+    if (heartMode) return;
+    heartMode = true; targets();
+    lp.forEach((p) => { p.x = Math.random() * 720; p.y = Math.random() * 1280; p.vx = p.vy = 0; p.a = 0; });
+    $("#dim").style.opacity = .82; $("#finaltext").style.opacity = 1; $("#hint").classList.add("light"); stage.classList.add("hm"); document.body.classList.add("hm");
+    setHint("toque para espalhar o coração");
+  }
+  function releaseHeart() {
+    if (!heartMode) return;
+    heartMode = false;
+    lp.forEach((p) => { const a = Math.atan2(p.y - HC.y, p.x - HC.x) + (Math.random() - .5) * .8, sp = 80 + Math.random() * 280; p.vx = Math.cos(a) * sp; p.vy = Math.sin(a) * sp - 60; });
+    $("#dim").style.opacity = 0; $("#finaltext").style.opacity = 0; $("#hint").classList.remove("light"); stage.classList.remove("hm"); document.body.classList.remove("hm");
+    burst(HC.x, HC.y, 26); setHint("toque para espalhar corações · segure para um coração de luz");
+  }
+  let hintTimer;
+  function setHint(txt, hide = 6000) { const h = $("#hint"); h.textContent = txt; h.classList.add("on"); clearTimeout(hintTimer); hintTimer = setTimeout(() => h.classList.remove("on"), hide); }
+
+  function step(dt) {
+    ctx.clearRect(0, 0, 720, 1280);
+    // fireflies: drift up, sway, and lean toward the pointer
+    const fade = clamp((t - 1) / 2.5);
+    flies.forEach((f) => {
+      f.ph += dt; f.x += Math.sin(f.ph * 0.8) * f.sw * dt + f.vx * dt; f.y += f.vy * dt; f.vx *= 0.96;
+      if (mouse.on) { const dx = mouse.x - f.x, dy = mouse.y - f.y, d = Math.hypot(dx, dy); if (d < 280 && d > 1) { f.vx += dx / d * 40 * dt * 6; f.y += dy / d * 40 * dt; } }
+      if (f.y < -60) { f.y = 1340; f.x = Math.random() * 720; }
+      const tw = 0.7 + 0.3 * Math.sin(f.ph * 1.7);
+      ctx.globalAlpha = f.a * tw * fade * (heartMode ? 0.5 : 1);
+      ctx.drawImage(sprite, f.x - f.s, f.y - f.s, f.s * 2, f.s * 2);
+    });
+    // pointer sparks
+    for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.life += dt; if (s.life > s.max) { sparks.splice(i, 1); continue; }
+      s.x += s.vx * dt; s.y += s.vy * dt; ctx.globalAlpha = (1 - s.life / s.max) * 0.9; ctx.drawImage(sprite, s.x - s.s, s.y - s.s, s.s * 2, s.s * 2); }
+    // rings
+    for (let i = rings.length - 1; i >= 0; i--) { const r = rings[i]; r.life += dt; if (r.life > 1.4) { rings.splice(i, 1); continue; } if (r.life < 0) continue;
+      const k = r.life / 1.4; ctx.save(); ctx.translate(r.x, r.y); ctx.scale(1 + k * 3, 1 + k * 3); ctx.globalAlpha = 0.7 * (1 - k); ctx.strokeStyle = "#ff5a7a"; ctx.lineWidth = 1.3 / (1 + k * 3) * 2;
+      ctx.translate(-12 * 2.5, -11.5 * 2.5); ctx.scale(2.5, 2.5); ctx.stroke(heartPath); ctx.restore(); }
+    // hearts
+    for (let i = hearts_.length - 1; i >= 0; i--) { const h = hearts_[i]; h.life += dt; if (h.life > h.max) { hearts_.splice(i, 1); continue; }
+      h.vy += 130 * dt * -0.0 - 0; h.vx *= 0.985; h.vy *= 0.985; h.x += h.vx * dt; h.y += h.vy * dt - 18 * dt;
+      const k = h.life / h.max; ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.r * k); const sc = h.s * (k < .12 ? k / .12 : 1) * 1.1;
+      ctx.scale(sc, sc); ctx.globalAlpha = k > .6 ? 1 - (k - .6) / .4 : 1; ctx.fillStyle = h.col; ctx.translate(-12, -11.5); ctx.fill(heartPath); ctx.restore(); }
+    // light heart
+    heartAlpha += ((heartMode ? 1 : 0) - heartAlpha) * Math.min(1, dt * 3);
+    if (heartAlpha > 0.01 || !heartMode) lp.forEach((p) => {
+      if (heartMode) {
+        const k = 22, d = 9;            // spring toward the target, with damping
+        p.vx += (p.tx - p.x) * k * dt; p.vy += (p.ty - p.y) * k * dt; p.vx *= Math.exp(-d * dt); p.vy *= Math.exp(-d * dt);
+        if (mouse.on) { const dx = p.x - mouse.x, dy = p.y - mouse.y, dd = Math.hypot(dx, dy); if (dd < 90 && dd > 1) { p.vx += dx / dd * 900 * dt; p.vy += dy / dd * 900 * dt; } }
+        p.a += (0.9 - p.a) * Math.min(1, dt * 2.5);
+      } else { p.vx *= Math.exp(-1.6 * dt); p.vy *= Math.exp(-1.6 * dt); p.a -= dt * 0.7; }
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.a > 0.01) { ctx.globalAlpha = Math.max(0, p.a) * (0.65 + 0.35 * Math.sin(t * 3 + p.s * 9)); ctx.drawImage(sprite, p.x - p.s, p.y - p.s, p.s * 2, p.s * 2); }
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------- main loop ----------
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (!paused) t += dt;
+    if (!dragging) { scrollVel *= Math.exp(-3 * dt); scrollOff += (55 * dt + scrollVel * dt); } // keeps drifting, with a little inertia
+    strip.style.transform = `translateY(${-(((scrollOff % LOOP) + LOOP) % LOOP)}px)`;
+    intro(t); step(dt);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame((n) => { last = n; requestAnimationFrame(frame); });
+
+  // ---------- pointer interaction ----------
+  function toStage(e) { const r = stage.getBoundingClientRect(), s = parseFloat(stage.dataset.scale) || 1; return { x: (e.clientX - r.left) / s, y: (e.clientY - r.top) / s }; }
+  let downAt = 0, downPos = null, moved = 0, holdTimer = 0, dragLast = null, downTile = null, downPhoto = null, held = false;
+  stage.addEventListener("pointerdown", (e) => {
+    stage.setPointerCapture(e.pointerId);
+    const p = toStage(e); downPos = p; downAt = performance.now(); moved = 0; dragLast = p;
+    downTile = e.target.closest(".tile"); downPhoto = e.target.closest(".photo");
+    dragging = !!downTile && false;      // set when the finger actually moves
+    mouse.x = p.x; mouse.y = p.y; mouse.on = true;
+    held = false;
+    holdTimer = setTimeout(() => { if (moved < 10 && !downTile && !downPhoto && !heartMode) { gatherHeart(); held = true; } }, 450);
+  });
+  stage.addEventListener("pointermove", (e) => {
+    const p = toStage(e); mouse.x = p.x; mouse.y = p.y; mouse.on = true;
+    if (Math.random() < 0.6) sparks.push({ x: p.x, y: p.y, vx: (Math.random() - .5) * 30, vy: -10 - Math.random() * 30, life: 0, max: 0.5 + Math.random() * 0.6, s: 4 + Math.random() * 7 });
+    if (downPos) {
+      moved += Math.hypot(p.x - dragLast.x, p.y - dragLast.y);
+      if (downTile && moved > 8) { dragging = true; const dy = p.y - dragLast.y; scrollOff -= dy; scrollVel = -dy / Math.max(0.016, 0.016); }
+      dragLast = p;
+    }
+  });
+  stage.addEventListener("pointerup", (e) => {
+    clearTimeout(holdTimer); dragging = false;
+    const p = toStage(e), dur = performance.now() - downAt;
+    if (downPos && moved < 10 && !held) {
+      if (downPhoto || downTile) { burst(p.x, p.y, 8); openLB((downPhoto ? (downPhoto.querySelector("img.b").style.opacity == "1" ? downPhoto.dataset.b : downPhoto.dataset.a) : downTile.dataset.src)); }
+      else if (heartMode) releaseHeart();
+      else if (dur < 450) { burst(p.x, p.y, 14); hideHint(); }
+    }
+    downPos = null; if (e.pointerType !== "mouse") mouse.on = false;
+  });
+  stage.addEventListener("pointerleave", () => { mouse.on = false; });
+  stage.addEventListener("wheel", (e) => { e.preventDefault(); scrollOff += e.deltaY * 0.6; scrollVel = e.deltaY * 2; }, { passive: false });
+  function hideHint() { $("#hint").classList.remove("on"); }
+
+  $("#replay").addEventListener("click", () => { t = 0; last12 = 0; autoShown = false; scrollOff = 0; if (heartMode) releaseHeart(); hearts_.length = 0; setHint("recomeçando…", 1500); });
+  $("#surprise").addEventListener("click", () => { heartMode ? releaseHeart() : gatherHeart(); });
+  addEventListener("keydown", (e) => {
+    if ($("#lb").classList.contains("open")) { if (e.key === "Escape") closeLB(); if (e.key === "ArrowRight") navLB(1); if (e.key === "ArrowLeft") navLB(-1); return; }
+    if (e.key === " ") { e.preventDefault(); burst(360, 640, 20); } if (e.key.toLowerCase() === "h") heartMode ? releaseHeart() : gatherHeart();
+  });
+
+  // ---------- photo viewer ----------
+  const ALL = ["col01","col02","col03","col04","col05","col06","col07","col08","top1","top2","bot1","bot2"];
+  let li = 0; const lb = $("#lb"), lbimg = $("#lbimg");
+  function showLB() { lbimg.style.opacity = 0; setTimeout(() => { lbimg.src = P + ALL[li] + ".jpg"; lbimg.style.opacity = 1; }, 120); $("#lbcount").textContent = `${li + 1} / ${ALL.length}`; }
+  function openLB(name) { li = Math.max(0, ALL.indexOf(name)); lbimg.src = P + ALL[li] + ".jpg"; lbimg.style.opacity = 1; $("#lbcount").textContent = `${li + 1} / ${ALL.length}`; lb.classList.add("open"); }
+  function closeLB() { lb.classList.remove("open"); }
+  function navLB(d) { li = (li + d + ALL.length) % ALL.length; showLB(); }
+  $("#lbclose").onclick = closeLB; $("#lbprev").onclick = (e) => { e.stopPropagation(); navLB(-1); }; $("#lbnext").onclick = (e) => { e.stopPropagation(); navLB(1); };
+  lb.addEventListener("pointerdown", (e) => { lb._x = e.clientX; });
+  lb.addEventListener("pointerup", (e) => { const dx = e.clientX - lb._x; if (Math.abs(dx) > 50) navLB(dx < 0 ? 1 : -1); else if (e.target === lb || e.target === lbimg) closeLB(); });
+  $("#lblike").onclick = (e) => { e.stopPropagation(); for (let i = 0; i < 9; i++) { const f = document.createElement("div"); f.className = "floater"; f.textContent = "♥";
+    f.style.left = `calc(50% + ${(Math.random() - .5) * 160}px)`; f.style.fontSize = 20 + Math.random() * 30 + "px"; f.style.animationDelay = i * 0.08 + "s"; lb.appendChild(f); setTimeout(() => f.remove(), 2600); } };
+
+  setTimeout(() => setHint("toque para espalhar corações · segure para um coração de luz"), 3500);
+})();
+</script>
+</body>
+</html>
